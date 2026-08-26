@@ -291,7 +291,8 @@ assert set(TYPES.values()) <= trained, f"kategori tak dikenal model: {set(TYPES.
 
 with st.sidebar:
     choice = st.segmented_control("Language / Bahasa", list(LANGUAGES), default="English")
-    t = TEXT[LANGUAGES.get(choice, "en")]
+    lang = LANGUAGES.get(choice, "en")
+    t = TEXT[lang]
 
     st.subheader(t["card"])
     st.metric("PR-AUC", "0.674", help=t["pr_auc_help"])
@@ -352,7 +353,7 @@ with predict_tab:
                 t["legit_msg"].format(p=fraud_proba, t=THRESHOLD), icon=":material/verified_user:"
             )
 
-        st.progress(min(fraud_proba, 1.0), text=t["progress"].format(p=fraud_proba))
+        st.progress(fraud_proba, text=t["progress"].format(p=fraud_proba))
 
         if TYPES[transaction_type] not in ("TRANSFER", "CASH_OUT"):
             st.caption(t["no_fraud_note"].format(kind=TYPES[transaction_type]))
@@ -394,7 +395,7 @@ with data_tab:
     st.markdown(t["types_body"])
 
     st.subheader(t["cols_head"])
-    meaning = 1 if LANGUAGES.get(choice, "en") == "en" else 2
+    meaning = 1 if lang == "en" else 2
     st.dataframe(
         pd.DataFrame(
             [(row[0], row[meaning], t["roles"][row[3]]) for row in COLUMN_ROWS],
