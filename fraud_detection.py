@@ -1,3 +1,4 @@
+import altair as alt
 import joblib
 import pandas as pd
 import streamlit as st
@@ -9,12 +10,25 @@ st.set_page_config(
 )
 
 MODEL_PATH = "fraud_detection_model.pkl"
+CURVE_PATH = "pr_curve.csv"
+
+# Palet kategorikal tervalidasi. Slot 1 untuk kurva, slot 2 untuk titik operasi.
+# Dua-duanya lolos enam pemeriksaan (lightness band, chroma, pemisahan CVD,
+# normal-vision floor, kontras) di light dan dark, jangan diganti tanpa
+# menjalankan ulang validator.
+PALETTE = {
+    "light": {"series": "#2a78d6", "accent": "#eb6834", "surface": "#fcfcfb",
+              "grid": "#e1e0d9", "axis": "#c3c2b7", "muted": "#898781", "ink": "#0b0b0b"},
+    "dark": {"series": "#3987e5", "accent": "#d95926", "surface": "#1a1a19",
+             "grid": "#2c2c2a", "axis": "#383835", "muted": "#898781", "ink": "#ffffff"},
+}
 
 # ponytail: threshold hasil tuning PR-curve di model.ipynb (F1 terbaik).
 # Default predict() memakai 0.5, yang menandai ~5% transaksi sah sebagai fraud.
 # Tune ulang dan perbarui angka ini setiap model dilatih ulang; pindahkan ke
 # dalam .pkl kalau ternyata sering berubah.
 THRESHOLD = 0.9926
+THRESHOLD_DIGITS = 4  # presisi tampilan slider; load_curve() menyamakan data ke sini
 
 # Label yang dilihat user -> kategori persis seperti saat model dilatih.
 # Model dilatih pada nilai kolom `type` di dataset: PAYMENT, TRANSFER,
@@ -113,6 +127,20 @@ TEXT = {
             f"accuracy. PR-AUC replaces accuracy here, and the decision threshold comes from the "
             f"precision-recall curve at {THRESHOLD} instead of the default 0.5. Tuning that "
             "threshold raised F1 from 0.04 to 0.635 and cut false positives from 101,499 to 734."
+        ),
+        "curve_head": "See the tradeoff",
+        "curve_body": (
+            "Every point on this curve is a threshold the model could use. Drag the slider to "
+            "move the operating point and watch precision buy itself with recall."
+        ),
+        "curve_slider": "Decision threshold",
+        "axis_recall": "Recall",
+        "axis_precision": "Precision",
+        "m_precision": "Precision",
+        "m_recall": "Recall",
+        "curve_caption": (
+            "The shipped model sits at {t}, the threshold with the best F1. Anything to the "
+            "right catches more fraud and troubles more honest customers."
         ),
         "limits_head": "Where it falls short",
         "limits_body": f"""
@@ -225,6 +253,20 @@ TEXT = {
             f"kurva precision-recall di {THRESHOLD}, bukan 0,5 bawaan. Tuning ambang itu "
             "menaikkan F1 dari 0,04 ke 0,635 dan memangkas false positive dari 101.499 jadi 734."
         ),
+        "curve_head": "Lihat trade-off-nya",
+        "curve_body": (
+            "Tiap titik di kurva ini satu threshold yang bisa dipakai model. Geser slider untuk "
+            "memindahkan titik operasi dan lihat precision membeli dirinya dengan recall."
+        ),
+        "curve_slider": "Ambang keputusan",
+        "axis_recall": "Recall",
+        "axis_precision": "Precision",
+        "m_precision": "Precision",
+        "m_recall": "Recall",
+        "curve_caption": (
+            "Model yang dipakai duduk di {t}, threshold dengan F1 terbaik. Bergeser ke kanan "
+            "menangkap lebih banyak fraud dan mengganggu lebih banyak nasabah jujur."
+        ),
         "limits_head": "Batas kemampuannya",
         "limits_body": f"""
             - **Model melewatkan sekitar 46% fraud.** Recall-nya 0,539. Turunkan `THRESHOLD`
@@ -281,7 +323,21 @@ TEXT = {
 
 @st.cache_resource
 def load_model():
+    # Pickle di-load dari artefak yang dihasilkan model.ipynb di repo ini dan
+    # ikut ter-commit, bukan unggahan user. Jangan arahkan MODEL_PATH ke file
+    # dari sumber luar: unpickle menjalankan kode sembarang.
     return joblib.load(MODEL_PATH)
+
+
+@st.cache_data
+def load_curve():
+    # select_slider menyimpan state sebagai hasil format_func lalu memetakannya
+    # balik lewat label, jadi label yang bentrok menunjuk titik yang salah.
+    # Bulatkan ke presisi yang sama dengan tampilannya, baru buang duplikat:
+    # label dijamin unik, bukan sekadar berharap unik.
+    curve = pd.read_csv(CURVE_PATH)
+    curve["threshold"] = curve["threshold"].round(THRESHOLD_DIGITS)
+    return curve.drop_duplicates("threshold").sort_values("threshold").reset_index(drop=True)
 
 
 model = load_model()
@@ -372,6 +428,62 @@ with project_tab:
     with st.container(border=True):
         st.markdown(t["metric_head"])
         st.markdown(t["metric_body"])
+
+    st.subheader(t["curve_head"])
+    st.markdown(t["curve_body"])
+
+    curve = load_curve()
+    options = curve["threshold"].tolist()
+    picked = st.select_slider(
+        t["curve_slider"],
+        options=options,
+        value=min(options, key=lambda v: abs(v - THRESHOLD)),
+        format_func=lambda v: f"{v:.{THRESHOLD_DIGITS}f}",
+    )
+    row = curve.loc[curve["threshold"] == picked].iloc[0]
+    f1 = 2 * row.precision * row.recall / (row.precision + row.recall + 1e-12)
+
+    scores = st.columns(3)
+    scores[0].metric(t["m_precision"], f"{row.precision:.3f}")
+    scores[1].metric(t["m_recall"], f"{row.recall:.3f}")
+    scores[2].metric("F1", f"{f1:.3f}")
+
+    p = PALETTE["dark" if st.context.theme.get("type") == "dark" else "light"]
+    axis = alt.Axis(
+        format=".0%", labelColor=p["muted"], titleColor=p["muted"],
+        tickColor=p["axis"], domainColor=p["axis"], gridColor=p["grid"],
+    )
+    span = alt.Scale(domain=[0, 1], nice=False)
+
+    line = alt.Chart(curve).mark_line(strokeWidth=2, color=p["series"]).encode(
+        x=alt.X("recall:Q", title=t["axis_recall"], axis=axis, scale=span),
+        y=alt.Y("precision:Q", title=t["axis_precision"], axis=axis, scale=span),
+    )
+    # Lapisan hover transparan: kurva jadi bisa ditanya tanpa menambah mark terlihat.
+    hover = alt.Chart(curve).mark_circle(size=90, opacity=0).encode(
+        x=alt.X("recall:Q", scale=span),
+        y=alt.Y("precision:Q", scale=span),
+        tooltip=[
+            alt.Tooltip("threshold:Q", title=t["curve_slider"], format=f".{THRESHOLD_DIGITS}f"),
+            alt.Tooltip("precision:Q", title=t["m_precision"], format=".3f"),
+            alt.Tooltip("recall:Q", title=t["m_recall"], format=".3f"),
+        ],
+    )
+    here = pd.DataFrame([{"recall": row.recall, "precision": row.precision,
+                          "label": f"{picked:.{THRESHOLD_DIGITS}f}"}])
+    dot = alt.Chart(here).mark_point(
+        size=170, filled=True, color=p["accent"], stroke=p["surface"], strokeWidth=2,
+    ).encode(x=alt.X("recall:Q", scale=span), y=alt.Y("precision:Q", scale=span))
+    # Label langsung: titik operasi tidak boleh dikenali dari warna saja.
+    tag = alt.Chart(here).mark_text(
+        dx=10, dy=-12, align="left", fontSize=12, color=p["ink"],
+    ).encode(x=alt.X("recall:Q", scale=span), y=alt.Y("precision:Q", scale=span), text="label:N")
+
+    st.altair_chart(
+        (line + hover + dot + tag).properties(height=320, background=p["surface"]),
+        theme=None,
+    )
+    st.caption(t["curve_caption"].format(t=THRESHOLD))
 
     st.subheader(t["limits_head"])
     st.markdown(t["limits_body"])
