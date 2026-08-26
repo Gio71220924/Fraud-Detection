@@ -27,35 +27,256 @@ TYPES = {
     "Debit": "DEBIT",
 }
 
+LANGUAGES = {"English": "en", "Bahasa Indonesia": "id"}
+
 # ponytail: angka di bawah di-hardcode dari model.ipynb. Dataset mentahnya
 # 470 MB — app tidak boleh membacanya hanya untuk menampilkan statistik.
-TYPE_STATS = pd.DataFrame(
-    [
-        ("CASH_OUT", 2_237_500, 4_116, 0.184),
-        ("PAYMENT", 2_151_495, 0, 0.000),
-        ("CASH_IN", 1_399_284, 0, 0.000),
-        ("TRANSFER", 532_909, 4_097, 0.769),
-        ("DEBIT", 41_432, 0, 0.000),
-    ],
-    columns=["Type", "Transactions", "Fraud", "Fraud rate (%)"],
-)
+TYPE_ROWS = [
+    ("CASH_OUT", 2_237_500, 4_116, 0.184),
+    ("PAYMENT", 2_151_495, 0, 0.000),
+    ("CASH_IN", 1_399_284, 0, 0.000),
+    ("TRANSFER", 532_909, 4_097, 0.769),
+    ("DEBIT", 41_432, 0, 0.000),
+]
 
-COLUMNS = pd.DataFrame(
-    [
-        ("step", "Hour of the simulation, 1 to 743 (31 days)", "Split only"),
-        ("type", "Transaction type, one of five categories", "Feature"),
-        ("amount", "Transaction amount", "Feature"),
-        ("nameOrig", "Sender account id", "Dropped"),
-        ("oldbalanceOrg", "Sender balance before the transaction", "Feature"),
-        ("newbalanceOrig", "Sender balance after the transaction", "Feature"),
-        ("nameDest", "Recipient account id", "Dropped"),
-        ("oldbalanceDest", "Recipient balance before the transaction", "Feature"),
-        ("newbalanceDest", "Recipient balance after the transaction", "Feature"),
-        ("isFraud", "Whether the transaction was fraudulent", "Target"),
-        ("isFlaggedFraud", "Flag raised by the simulator's own rule", "Dropped"),
-    ],
-    columns=["Column", "Meaning", "Role"],
-)
+# (kolom, arti EN, arti ID, kunci peran)
+COLUMN_ROWS = [
+    ("step", "Hour of the simulation, 1 to 743 (31 days)", "Jam simulasi, 1 sampai 743 (31 hari)", "split"),
+    ("type", "Transaction type, one of five categories", "Jenis transaksi, satu dari lima kategori", "feature"),
+    ("amount", "Transaction amount", "Nominal transaksi", "feature"),
+    ("nameOrig", "Sender account id", "ID akun pengirim", "dropped"),
+    ("oldbalanceOrg", "Sender balance before the transaction", "Saldo pengirim sebelum transaksi", "feature"),
+    ("newbalanceOrig", "Sender balance after the transaction", "Saldo pengirim setelah transaksi", "feature"),
+    ("nameDest", "Recipient account id", "ID akun penerima", "dropped"),
+    ("oldbalanceDest", "Recipient balance before the transaction", "Saldo penerima sebelum transaksi", "feature"),
+    ("newbalanceDest", "Recipient balance after the transaction", "Saldo penerima setelah transaksi", "feature"),
+    ("isFraud", "Whether the transaction was fraudulent", "Apakah transaksi itu fraud", "target"),
+    ("isFlaggedFraud", "Flag raised by the simulator's own rule", "Tanda dari aturan bawaan simulator", "dropped"),
+]
+
+TEXT = {
+    "en": {
+        "title": "Fraud detection model",
+        "subtitle": (
+            "Logistic regression trained on 6.4 million simulated mobile-money transfers. "
+            "Score a transaction, or read how the model and its data were built."
+        ),
+        "tabs": ["Predict", "The project", "The dataset"],
+        "card": "Model card",
+        "pr_auc_help": "The baseline for this dataset is 0.0024, so this model scores 280x higher.",
+        "precision_help": "Of the transactions the model flags, 77% are fraud.",
+        "recall_help": "The model catches 54% of real fraud and misses the rest.",
+        "card_note": f"Logistic regression, decision threshold {THRESHOLD}.",
+        "card_warning": "Trained on PaySim, a synthetic dataset. This is not a production fraud system.",
+        "type_label": "Transaction type",
+        "amount_label": "Transaction amount",
+        "origin": "**Origin account**",
+        "destination": "**Destination account**",
+        "before": "Balance before",
+        "after": "Balance after",
+        "predict": "Predict",
+        "result": "Result",
+        "fraud_msg": "Predicted fraudulent. Fraud probability {p:.4f}, at or above the {t} threshold.",
+        "legit_msg": "Predicted legitimate. Fraud probability {p:.4f}, below the {t} threshold.",
+        "progress": "Fraud probability {p:.1%}",
+        "no_fraud_note": (
+            "The training data holds no fraud of type {kind}, so the model labels this type "
+            "legitimate whatever the amounts."
+        ),
+        "what_head": "What this is",
+        "what_body": (
+            "This classifier scores a single mobile-money transaction for fraud. The training "
+            "data is public and synthetic, and no real payment system connects to this app."
+        ),
+        "how_head": "How the model works",
+        "how_body": """
+            One scikit-learn `Pipeline` holds every step, so each transformer fits on the
+            training data alone and ships inside the same pickle file:
+
+            1. `StandardScaler` scales the five numeric columns.
+            2. `OneHotEncoder(drop="first")` encodes the transaction type.
+            3. `LogisticRegression(class_weight="balanced")` reweights the rare class instead
+               of resampling it.
+        """,
+        "decisions_head": "Design decisions",
+        "split_head": "**Splitting by time**",
+        "split_body": (
+            "PaySim records each fraud as a pair of rows, a `TRANSFER` followed by a `CASH_OUT` "
+            "sharing the same hour and amount, with identical sender balances in 98.4% of cases. "
+            "A random split sent 1,665 of 4,080 pairs to opposite sides, so the model trained on "
+            "near-copies of the rows it was later tested on. Cutting the data at hour 323 keeps "
+            "each pair on one side and stops future transactions from reaching the training set."
+        ),
+        "metric_head": "**Scoring with PR-AUC**",
+        "metric_body": (
+            "At a 0.13% fraud rate, a model that labels everything legitimate scores 99.87% "
+            f"accuracy. PR-AUC replaces accuracy here, and the decision threshold comes from the "
+            f"precision-recall curve at {THRESHOLD} instead of the default 0.5. Tuning that "
+            "threshold raised F1 from 0.04 to 0.635 and cut false positives from 101,499 to 734."
+        ),
+        "limits_head": "Where it falls short",
+        "limits_body": f"""
+            - **The model misses about 46% of fraud.** Recall sits at 0.539. Drop `THRESHOLD`
+              below {THRESHOLD} to catch more fraud and flag more innocent customers.
+            - **Logistic regression draws a straight line.** Fraud here follows a rule, drain
+              the account then cash out, which gradient boosting captures better.
+            - **A simulator produced the data.** Precision and recall on real transactions
+              would differ.
+            - **The model has no account history.** The features exclude sender and recipient
+              ids, so it cannot tell that an account behaved oddly last week.
+        """,
+        "data_head": "PaySim mobile-money transactions",
+        "data_body": (
+            "The PaySim simulator generates this dataset by modelling mobile-money traffic on an "
+            "African payment network and injecting fraudulent agents into it. Banks cannot "
+            "release real transaction data, so researchers train on this instead."
+        ),
+        "m_tx": "Transactions",
+        "m_fraud": "Fraud cases",
+        "m_rate": "Fraud rate",
+        "m_span": "Time span",
+        "m_span_value": "31 days",
+        "imbalance": (
+            "One fraud turns up in every 774 transactions. That imbalance shapes the split, the "
+            "class weights, and the choice of metric."
+        ),
+        "types_head": "Transaction types",
+        "types_body": (
+            "Fraud appears in two of the five types. `TRANSFER` and `CASH_OUT` carry every "
+            "fraudulent record, while `PAYMENT`, `CASH_IN` and `DEBIT` carry none. Fraudsters "
+            "transfer a victim's balance out, then cash it."
+        ),
+        "cols_head": "Columns",
+        "col_headers": ["Column", "Meaning", "Role"],
+        "type_headers": ["Type", "Transactions", "Fraud", "Fraud rate (%)"],
+        "roles": {"feature": "Feature", "dropped": "Dropped", "split": "Split only", "target": "Target"},
+        "dropped_head": "Why three columns are dropped",
+        "dropped_body": """
+            - `nameOrig` and `nameDest` hold account ids. Senders are almost all unique, so the
+              model would memorise identifiers instead of learning behaviour.
+            - `isFlaggedFraud` holds the simulator's own fraud flag. Feeding a fraud label into
+              a fraud model leaks the answer, and it fires on 16 of 6.36 million rows.
+            - `step` stays in the table and never reaches the model. It marks the train/test
+              boundary, and the `ColumnTransformer` leaves it out of the features.
+        """,
+        "median_note": (
+            "Fraudulent transactions run much larger: a median of 441,424 against 74,872 across "
+            "all transactions."
+        ),
+    },
+    "id": {
+        "title": "Model deteksi fraud",
+        "subtitle": (
+            "Regresi logistik yang dilatih pada 6,4 juta transaksi uang elektronik simulasi. "
+            "Nilai sebuah transaksi, atau baca cara model dan datanya dibangun."
+        ),
+        "tabs": ["Prediksi", "Tentang project", "Tentang dataset"],
+        "card": "Kartu model",
+        "pr_auc_help": "Baseline dataset ini 0,0024, jadi model ini unggul 280 kali lipat.",
+        "precision_help": "Dari transaksi yang ditandai model, 77% benar-benar fraud.",
+        "recall_help": "Model menangkap 54% fraud asli dan melewatkan sisanya.",
+        "card_note": f"Regresi logistik, ambang keputusan {THRESHOLD}.",
+        "card_warning": "Dilatih pada PaySim, dataset sintetis. Ini bukan sistem fraud produksi.",
+        "type_label": "Jenis transaksi",
+        "amount_label": "Nominal transaksi",
+        "origin": "**Akun pengirim**",
+        "destination": "**Akun penerima**",
+        "before": "Saldo sebelum",
+        "after": "Saldo sesudah",
+        "predict": "Prediksi",
+        "result": "Hasil",
+        "fraud_msg": "Diprediksi fraud. Probabilitas fraud {p:.4f}, sama atau di atas ambang {t}.",
+        "legit_msg": "Diprediksi sah. Probabilitas fraud {p:.4f}, di bawah ambang {t}.",
+        "progress": "Probabilitas fraud {p:.1%}",
+        "no_fraud_note": (
+            "Data latih tidak memuat satu pun fraud berjenis {kind}, jadi model menilai jenis ini "
+            "sah berapa pun nominalnya."
+        ),
+        "what_head": "Ini apa",
+        "what_body": (
+            "Pengklasifikasi ini menilai satu transaksi uang elektronik untuk mendeteksi fraud. "
+            "Data latihnya publik dan sintetis, dan tidak ada sistem pembayaran nyata yang "
+            "terhubung ke app ini."
+        ),
+        "how_head": "Cara kerja model",
+        "how_body": """
+            Satu `Pipeline` scikit-learn memuat seluruh langkah, sehingga tiap transformer
+            dilatih hanya pada data latih dan ikut tersimpan dalam file pickle yang sama:
+
+            1. `StandardScaler` menskalakan lima kolom numerik.
+            2. `OneHotEncoder(drop="first")` mengubah jenis transaksi jadi kolom biner.
+            3. `LogisticRegression(class_weight="balanced")` memberi bobot lebih pada kelas
+               langka alih-alih menduplikasi barisnya.
+        """,
+        "decisions_head": "Keputusan desain",
+        "split_head": "**Memecah data berdasarkan waktu**",
+        "split_body": (
+            "PaySim mencatat tiap fraud sebagai sepasang baris, satu `TRANSFER` lalu satu "
+            "`CASH_OUT` dengan jam dan nominal sama, dan saldo pengirim identik pada 98,4% kasus. "
+            "Pemecahan acak melempar 1.665 dari 4.080 pasangan ke sisi berlawanan, jadi model "
+            "berlatih pada kembaran baris yang kemudian dipakai mengujinya. Memotong data di jam "
+            "323 menjaga tiap pasangan tetap satu sisi dan menahan transaksi masa depan masuk ke "
+            "data latih."
+        ),
+        "metric_head": "**Menilai dengan PR-AUC**",
+        "metric_body": (
+            "Pada tingkat fraud 0,13%, model yang menilai semuanya sah tetap meraih akurasi "
+            f"99,87%. PR-AUC menggantikan akurasi di sini, dan ambang keputusan diambil dari "
+            f"kurva precision-recall di {THRESHOLD}, bukan 0,5 bawaan. Tuning ambang itu "
+            "menaikkan F1 dari 0,04 ke 0,635 dan memangkas false positive dari 101.499 jadi 734."
+        ),
+        "limits_head": "Batas kemampuannya",
+        "limits_body": f"""
+            - **Model melewatkan sekitar 46% fraud.** Recall-nya 0,539. Turunkan `THRESHOLD`
+              di bawah {THRESHOLD} untuk menangkap lebih banyak fraud sekaligus menandai lebih
+              banyak nasabah yang tidak bersalah.
+            - **Regresi logistik menarik garis lurus.** Fraud di sini mengikuti pola aturan,
+              kuras akun lalu tarik tunai, yang lebih cocok ditangani gradient boosting.
+            - **Datanya buatan simulator.** Precision dan recall pada transaksi nyata akan
+              berbeda.
+            - **Model tidak punya riwayat akun.** Fiturnya tidak memuat ID pengirim dan
+              penerima, jadi model tidak tahu sebuah akun berperilaku aneh minggu lalu.
+        """,
+        "data_head": "Transaksi uang elektronik PaySim",
+        "data_body": (
+            "Simulator PaySim menghasilkan dataset ini dengan memodelkan lalu lintas uang "
+            "elektronik di sebuah jaringan pembayaran Afrika lalu menyisipkan pelaku fraud ke "
+            "dalamnya. Bank tidak boleh merilis data transaksi asli, jadi peneliti memakai ini."
+        ),
+        "m_tx": "Transaksi",
+        "m_fraud": "Kasus fraud",
+        "m_rate": "Tingkat fraud",
+        "m_span": "Rentang waktu",
+        "m_span_value": "31 hari",
+        "imbalance": (
+            "Satu fraud muncul tiap 774 transaksi. Ketimpangan itu menentukan cara pemecahan "
+            "data, bobot kelas, dan pilihan metrik."
+        ),
+        "types_head": "Jenis transaksi",
+        "types_body": (
+            "Fraud muncul di dua dari lima jenis. `TRANSFER` dan `CASH_OUT` memuat seluruh "
+            "catatan fraud, sementara `PAYMENT`, `CASH_IN` dan `DEBIT` tidak memuat satu pun. "
+            "Pelaku memindahkan saldo korban keluar, lalu menariknya jadi tunai."
+        ),
+        "cols_head": "Kolom",
+        "col_headers": ["Kolom", "Arti", "Peran"],
+        "type_headers": ["Jenis", "Transaksi", "Fraud", "Tingkat fraud (%)"],
+        "roles": {"feature": "Fitur", "dropped": "Dibuang", "split": "Hanya split", "target": "Target"},
+        "dropped_head": "Alasan tiga kolom dibuang",
+        "dropped_body": """
+            - `nameOrig` dan `nameDest` berisi ID akun. Pengirim hampir seluruhnya unik, jadi
+              model akan menghafal identitas alih-alih mempelajari perilaku.
+            - `isFlaggedFraud` berisi tanda fraud bawaan simulator. Memberi label fraud ke model
+              fraud membocorkan jawabannya, dan tanda itu menyala pada 16 dari 6,36 juta baris.
+            - `step` tetap ada di tabel dan tidak pernah sampai ke model. Kolom itu menandai
+              batas latih/uji, dan `ColumnTransformer` mengeluarkannya dari fitur.
+        """,
+        "median_note": (
+            "Transaksi fraud juga jauh lebih besar: median 441.424 berbanding 74.872 pada seluruh "
+            "transaksi."
+        ),
+    },
+}
 
 
 @st.cache_resource
@@ -69,41 +290,43 @@ trained = set(model.named_steps["preprocessor"].named_transformers_["cat"].categ
 assert set(TYPES.values()) <= trained, f"kategori tak dikenal model: {set(TYPES.values()) - trained}"
 
 with st.sidebar:
-    st.subheader("Model card")
-    st.metric("PR-AUC", "0.674", help="Baseline for this dataset is 0.0024, so this is a 280x lift.")
-    st.metric("Precision", "0.771", help="Of the transactions flagged as fraud, 77% really are.")
-    st.metric("Recall", "0.539", help="Of all real fraud, 54% gets caught. The rest slips through.")
-    st.caption(f"Logistic regression, decision threshold {THRESHOLD}.")
-    st.caption("Trained on PaySim, a synthetic dataset. Not a production fraud system.")
+    choice = st.segmented_control("Language / Bahasa", list(LANGUAGES), default="English")
+    t = TEXT[LANGUAGES.get(choice, "en")]
 
-st.title("Fraud detection model")
-st.caption(
-    "Logistic regression trained on 6.4 million simulated mobile-money transfers. "
-    "Enter a transaction below to score it, or read how the model and its data were built."
-)
+    st.subheader(t["card"])
+    st.metric("PR-AUC", "0.674", help=t["pr_auc_help"])
+    st.metric("Precision", "0.771", help=t["precision_help"])
+    st.metric("Recall", "0.539", help=t["recall_help"])
+    st.caption(t["card_note"])
+    st.caption(t["card_warning"])
 
-predict_tab, project_tab, data_tab = st.tabs(["Predict", "The project", "The dataset"])
+st.title(t["title"])
+st.caption(t["subtitle"])
+
+predict_tab, project_tab, data_tab = st.tabs(t["tabs"])
 
 with predict_tab:
     with st.form("transaction"):
-        transaction_type = st.selectbox("Transaction type", list(TYPES))
-        amount = st.number_input("Transaction amount", min_value=0.0, step=0.01, value=1000.0)
+        transaction_type = st.selectbox(t["type_label"], list(TYPES))
+        amount = st.number_input(t["amount_label"], min_value=0.0, step=0.01, value=1000.0)
 
         left, right = st.columns(2)
         with left:
-            st.markdown("**Origin account**")
-            oldbalanceorg = st.number_input("Balance before", min_value=0.0, step=0.01, value=1000.0)
-            newbalanceorg = st.number_input("Balance after", min_value=0.0, step=0.01, value=1000.0)
+            st.markdown(t["origin"])
+            oldbalanceorg = st.number_input(t["before"], min_value=0.0, step=0.01, value=1000.0)
+            newbalanceorg = st.number_input(t["after"], min_value=0.0, step=0.01, value=1000.0)
         with right:
-            st.markdown("**Destination account**")
+            st.markdown(t["destination"])
             oldbalancedest = st.number_input(
-                "Balance before", min_value=0.0, step=0.01, value=1000.0, key="dest_old"
+                t["before"], min_value=0.0, step=0.01, value=1000.0, key="dest_old"
             )
             newbalancedest = st.number_input(
-                "Balance after", min_value=0.0, step=0.01, value=1000.0, key="dest_new"
+                t["after"], min_value=0.0, step=0.01, value=1000.0, key="dest_new"
             )
 
-        submitted = st.form_submit_button("Predict", icon=":material/play_arrow:", type="primary")
+        submitted = st.form_submit_button(
+            t["predict"], icon=":material/play_arrow:", type="primary"
+        )
 
     if submitted:
         input_data = pd.DataFrame(
@@ -119,127 +342,69 @@ with predict_tab:
 
         fraud_proba = model.predict_proba(input_data)[0][1]
 
-        st.subheader("Result")
+        st.subheader(t["result"])
         if fraud_proba >= THRESHOLD:
             st.error(
-                f"Predicted **fraudulent** — fraud probability {fraud_proba:.4f}, "
-                f"at or above the {THRESHOLD} threshold.",
-                icon=":material/gpp_bad:",
+                t["fraud_msg"].format(p=fraud_proba, t=THRESHOLD), icon=":material/gpp_bad:"
             )
         else:
             st.success(
-                f"Predicted **legitimate** — fraud probability {fraud_proba:.4f}, "
-                f"below the {THRESHOLD} threshold.",
-                icon=":material/verified_user:",
+                t["legit_msg"].format(p=fraud_proba, t=THRESHOLD), icon=":material/verified_user:"
             )
 
-        st.progress(min(fraud_proba, 1.0), text=f"Fraud probability {fraud_proba:.1%}")
+        st.progress(min(fraud_proba, 1.0), text=t["progress"].format(p=fraud_proba))
 
         if TYPES[transaction_type] not in ("TRANSFER", "CASH_OUT"):
-            st.caption(
-                f"Note: the training data contains zero fraud of type {TYPES[transaction_type]}, "
-                "so this type is predicted legitimate almost regardless of the amounts."
-            )
+            st.caption(t["no_fraud_note"].format(kind=TYPES[transaction_type]))
 
 with project_tab:
-    st.subheader("What this is")
-    st.markdown(
-        "A binary classifier that estimates whether a single mobile-money transaction is "
-        "fraudulent. It is a portfolio and teaching project built on public synthetic data, "
-        "not a system connected to any real payment rail."
-    )
+    st.subheader(t["what_head"])
+    st.markdown(t["what_body"])
 
-    st.subheader("How the model is built")
-    st.markdown(
-        """
-        A single scikit-learn `Pipeline`, so every preprocessing step is fitted on the
-        training data alone and travels with the model into this app:
+    st.subheader(t["how_head"])
+    st.markdown(t["how_body"])
 
-        1. `StandardScaler` on the five numeric columns.
-        2. `OneHotEncoder(drop="first")` on the transaction type.
-        3. `LogisticRegression(class_weight="balanced")`, which reweights the rare class
-           instead of resampling it.
-        """
-    )
-
-    st.subheader("Two decisions that matter more than the algorithm")
+    st.subheader(t["decisions_head"])
     with st.container(border=True):
-        st.markdown("**The split is by time, not random**")
-        st.markdown(
-            "PaySim records each fraud as a pair of rows — a `TRANSFER` followed by a "
-            "`CASH_OUT` sharing the same hour and amount, with identical sender balances in "
-            "98.4% of cases. A random split sent 1,665 of 4,080 such pairs to opposite sides, "
-            "letting the model meet a near-copy of each test row during training. Splitting at "
-            "hour 323 keeps every pair on one side and stops future transactions leaking "
-            "backwards into training."
-        )
+        st.markdown(t["split_head"])
+        st.markdown(t["split_body"])
     with st.container(border=True):
-        st.markdown("**Accuracy is not the metric**")
-        st.markdown(
-            "At a 0.13% fraud rate, predicting *legitimate* for everything scores 99.87% "
-            "accuracy. The model is scored on PR-AUC instead, and its decision threshold is "
-            f"tuned on the precision-recall curve to {THRESHOLD} rather than left at the "
-            "default 0.5. That single change moved F1 from 0.04 to 0.635 and cut false "
-            "positives from 101,499 to 734."
-        )
+        st.markdown(t["metric_head"])
+        st.markdown(t["metric_body"])
 
-    st.subheader("Where it falls short")
-    st.markdown(
-        f"""
-        - **It misses about 46% of fraud.** Recall is 0.539 at this threshold. Lowering
-          `THRESHOLD` below {THRESHOLD} catches more fraud and flags more innocent customers.
-        - **Logistic regression is a linear model.** Fraud here is a rule-like pattern
-          (drain the account, then cash out), which gradient boosting fits better.
-        - **The data is simulated.** PaySim comes out of a simulator, so real-world precision
-          and recall would differ.
-        - **No account history.** Sender and recipient ids are dropped, so the model cannot
-          see that an account has behaved oddly before.
-        """
-    )
+    st.subheader(t["limits_head"])
+    st.markdown(t["limits_body"])
 
 with data_tab:
-    st.subheader("PaySim mobile-money transactions")
-    st.markdown(
-        "A synthetic dataset generated by the PaySim simulator, which models mobile-money "
-        "traffic on an African payment network and injects fraudulent agents into it. It is "
-        "public precisely because real transaction data cannot be released."
-    )
+    st.subheader(t["data_head"])
+    st.markdown(t["data_body"])
 
     cols = st.columns(4)
-    cols[0].metric("Transactions", "6.36M")
-    cols[1].metric("Fraud cases", "8,213")
-    cols[2].metric("Fraud rate", "0.13%")
-    cols[3].metric("Time span", "31 days")
+    cols[0].metric(t["m_tx"], "6.36M")
+    cols[1].metric(t["m_fraud"], "8,213")
+    cols[2].metric(t["m_rate"], "0.13%")
+    cols[3].metric(t["m_span"], t["m_span_value"])
 
-    st.markdown(
-        "That works out to roughly **one fraud in every 774 transactions** — the imbalance "
-        "that drives nearly every modelling decision in this project."
+    st.markdown(t["imbalance"])
+
+    st.subheader(t["types_head"])
+    st.dataframe(
+        pd.DataFrame(TYPE_ROWS, columns=t["type_headers"]), hide_index=True, width="stretch"
+    )
+    st.markdown(t["types_body"])
+
+    st.subheader(t["cols_head"])
+    meaning = 1 if LANGUAGES.get(choice, "en") == "en" else 2
+    st.dataframe(
+        pd.DataFrame(
+            [(row[0], row[meaning], t["roles"][row[3]]) for row in COLUMN_ROWS],
+            columns=t["col_headers"],
+        ),
+        hide_index=True,
+        width="stretch",
     )
 
-    st.subheader("Transaction types")
-    st.dataframe(TYPE_STATS, hide_index=True, width="stretch")
-    st.markdown(
-        "Fraud appears in only two of the five types. `TRANSFER` and `CASH_OUT` carry every "
-        "fraudulent record; `PAYMENT`, `CASH_IN` and `DEBIT` contain none at all. The pattern "
-        "is a transfer that empties an account, immediately followed by a cash-out."
-    )
+    with st.expander(t["dropped_head"], icon=":material/delete:"):
+        st.markdown(t["dropped_body"])
 
-    st.subheader("Columns")
-    st.dataframe(COLUMNS, hide_index=True, width="stretch")
-
-    with st.expander("Why three columns are dropped", icon=":material/delete:"):
-        st.markdown(
-            """
-            - `nameOrig` and `nameDest` are account ids. Senders are almost all unique, so the
-              model would memorise identifiers rather than learn behaviour.
-            - `isFlaggedFraud` is the simulator's own fraud flag. Feeding a fraud label into a
-              fraud model is leakage, and it fires on only 16 of 6.36 million rows anyway.
-            - `step` stays in the table but never reaches the model. It defines the train/test
-              boundary, and the `ColumnTransformer` drops it from the features.
-            """
-        )
-
-    st.caption(
-        "Fraudulent transactions are also much larger: a median of 441,424 against 74,872 "
-        "across all transactions."
-    )
+    st.caption(t["median_note"])
