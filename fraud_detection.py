@@ -11,6 +11,7 @@ st.set_page_config(
 
 MODEL_PATH = "fraud_detection_model.pkl"
 CURVE_PATH = "pr_curve.csv"
+LEARNING_PATH = "learning_curve.csv"
 
 # Palet kategorikal tervalidasi. Slot 1 untuk kurva, slot 2 untuk titik operasi.
 # Dua-duanya lolos enam pemeriksaan (lightness band, chroma, pemisahan CVD,
@@ -142,6 +143,19 @@ TEXT = {
             "The shipped model sits at {t}, the threshold with the best F1. Anything to the "
             "right catches more fraud and troubles more honest customers."
         ),
+        "learn_head": "Would more data help",
+        "learn_body": (
+            "Each point retrains the model on a random slice of the training window and scores "
+            "it on the same held-out month. The slices all span the same period, so what moves "
+            "is the amount of data, not how recent it is."
+        ),
+        "axis_rows": "Training transactions",
+        "axis_prauc": "PR-AUC",
+        "learn_caption": (
+            "The line is flat. A hundredfold more data, from 45 thousand rows to 4.5 million, "
+            "leaves PR-AUC around 0.7. Collecting more transactions is not the lever here, which "
+            "is what sends the next section after a different model instead."
+        ),
         "limits_head": "Where it falls short",
         "limits_body": f"""
             - **The model misses about 46% of fraud.** Recall sits at 0.539. Drop `THRESHOLD`
@@ -267,6 +281,19 @@ TEXT = {
             "Model yang dipakai duduk di {t}, threshold dengan F1 terbaik. Bergeser ke kanan "
             "menangkap lebih banyak fraud dan mengganggu lebih banyak nasabah jujur."
         ),
+        "learn_head": "Apakah menambah data menolong",
+        "learn_body": (
+            "Tiap titik melatih ulang model pada potongan acak jendela latih lalu menilainya di "
+            "bulan uji yang sama. Semua potongan menutupi rentang waktu yang sama, jadi yang "
+            "berubah cuma banyaknya data, bukan seberapa barunya."
+        ),
+        "axis_rows": "Transaksi latih",
+        "axis_prauc": "PR-AUC",
+        "learn_caption": (
+            "Garisnya datar. Data seratus kali lipat, dari 45 ribu baris ke 4,5 juta, "
+            "meninggalkan PR-AUC di sekitar 0,7. Mengumpulkan lebih banyak transaksi bukan "
+            "tuasnya di sini, dan itu yang mengarahkan bagian berikutnya ke model lain."
+        ),
         "limits_head": "Batas kemampuannya",
         "limits_body": f"""
             - **Model melewatkan sekitar 46% fraud.** Recall-nya 0,539. Turunkan `THRESHOLD`
@@ -327,6 +354,11 @@ def load_model():
     # ikut ter-commit, bukan unggahan user. Jangan arahkan MODEL_PATH ke file
     # dari sumber luar: unpickle menjalankan kode sembarang.
     return joblib.load(MODEL_PATH)
+
+
+@st.cache_data
+def load_learning():
+    return pd.read_csv(LEARNING_PATH)
 
 
 @st.cache_data
@@ -484,6 +516,36 @@ with project_tab:
         theme=None,
     )
     st.caption(t["curve_caption"].format(t=THRESHOLD))
+
+    st.subheader(t["learn_head"])
+    st.markdown(t["learn_body"])
+
+    learn = load_learning()
+    rows_axis = alt.Axis(labelColor=p["muted"], titleColor=p["muted"], tickColor=p["axis"],
+                         domainColor=p["axis"], gridColor=p["grid"], format="~s")
+    pct_axis = alt.Axis(format=".0%", labelColor=p["muted"], titleColor=p["muted"],
+                        tickColor=p["axis"], domainColor=p["axis"], gridColor=p["grid"])
+    # Sumbu y penuh 0-1: memotongnya ke 0.6-0.75 akan membesar-besarkan derau
+    # jadi seolah tren, padahal justru kedatarannya yang jadi temuan.
+    enc = dict(
+        x=alt.X("rows:Q", title=t["axis_rows"], axis=rows_axis,
+                scale=alt.Scale(type="log", nice=False)),
+        y=alt.Y("test_pr_auc:Q", title=t["axis_prauc"], axis=pct_axis,
+                scale=alt.Scale(domain=[0, 1], nice=False)),
+    )
+    learn_line = alt.Chart(learn).mark_line(strokeWidth=2, color=p["series"]).encode(**enc)
+    learn_dots = alt.Chart(learn).mark_point(
+        size=90, filled=True, color=p["series"], stroke=p["surface"], strokeWidth=2,
+    ).encode(
+        **enc,
+        tooltip=[alt.Tooltip("rows:Q", title=t["axis_rows"], format=","),
+                 alt.Tooltip("fraud:Q", title=t["m_fraud"], format=","),
+                 alt.Tooltip("test_pr_auc:Q", title="PR-AUC", format=".3f")],
+    )
+    st.altair_chart(
+        (learn_line + learn_dots).properties(height=280, background=p["surface"]), theme=None
+    )
+    st.caption(t["learn_caption"])
 
     st.subheader(t["limits_head"])
     st.markdown(t["limits_body"])
