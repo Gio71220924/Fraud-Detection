@@ -44,6 +44,15 @@ TYPES = {
 
 LANGUAGES = {"English": "en", "Bahasa Indonesia": "id"}
 
+# Dua baris nyata dari dataset, keduanya TRANSFER, supaya yang membedakan
+# hasilnya adalah pola saldo dan bukan jenis transaksinya. Yang fraud menguras
+# akun sampai nol dan uangnya tidak pernah tercatat masuk di penerima.
+FIELDS = ("ex_type", "ex_amount", "ex_org_old", "ex_org_new", "ex_dst_old", "ex_dst_new")
+EXAMPLES = {
+    "fraud": ("Transfer", 6_546_019.00, 6_546_019.00, 0.00, 0.00, 0.00),
+    "legit": ("Transfer", 195_690.49, 400_210.00, 204_519.51, 125_071_526.76, 125_267_217.24),
+}
+
 # ponytail: angka di bawah di-hardcode dari model.ipynb. Dataset mentahnya
 # 470 MB — app tidak boleh membacanya hanya untuk menampilkan statistik.
 TYPE_ROWS = [
@@ -83,6 +92,12 @@ TEXT = {
         "recall_help": "The model catches 54% of real fraud and misses the rest.",
         "card_note": f"Logistic regression, decision threshold {THRESHOLD}.",
         "card_warning": "Trained on PaySim, a synthetic dataset. This is not a production fraud system.",
+        "ex_caption": (
+            "Two real rows from the dataset, both transfers. Load either one, then press "
+            "Predict."
+        ),
+        "btn_fraud": "Load a fraud example",
+        "btn_legit": "Load a legitimate example",
         "type_label": "Transaction type",
         "amount_label": "Transaction amount",
         "origin": "**Origin account**",
@@ -219,6 +234,12 @@ TEXT = {
         "recall_help": "Model menangkap 54% fraud asli dan melewatkan sisanya.",
         "card_note": f"Regresi logistik, ambang keputusan {THRESHOLD}.",
         "card_warning": "Dilatih pada PaySim, dataset sintetis. Ini bukan sistem fraud produksi.",
+        "ex_caption": (
+            "Dua baris nyata dari dataset, dua-duanya transfer. Muat salah satu, lalu tekan "
+            "Prediksi."
+        ),
+        "btn_fraud": "Muat contoh fraud",
+        "btn_legit": "Muat contoh sah",
         "type_label": "Jenis transaksi",
         "amount_label": "Nominal transaksi",
         "origin": "**Akun pengirim**",
@@ -395,22 +416,37 @@ st.caption(t["subtitle"])
 predict_tab, project_tab, data_tab = st.tabs(t["tabs"])
 
 with predict_tab:
+    # Bawaan form = contoh fraud, supaya klik Predict pertama menunjukkan model
+    # benar-benar mendeteksi sesuatu. Sebelumnya form terisi 1000/1000/1000 yang
+    # selalu menghasilkan 0.0000.
+    for field, value in zip(FIELDS, EXAMPLES["fraud"]):
+        st.session_state.setdefault(field, value)
+
+    def use_example(name):
+        for field, value in zip(FIELDS, EXAMPLES[name]):
+            st.session_state[field] = value
+
+    st.caption(t["ex_caption"])
+    with st.container(horizontal=True):
+        st.button(t["btn_fraud"], icon=":material/gpp_bad:", on_click=use_example, args=("fraud",))
+        st.button(t["btn_legit"], icon=":material/verified_user:", on_click=use_example, args=("legit",))
+
     with st.form("transaction"):
-        transaction_type = st.selectbox(t["type_label"], list(TYPES))
-        amount = st.number_input(t["amount_label"], min_value=0.0, step=0.01, value=1000.0)
+        transaction_type = st.selectbox(t["type_label"], list(TYPES), key="ex_type")
+        amount = st.number_input(t["amount_label"], min_value=0.0, step=0.01, key="ex_amount")
 
         left, right = st.columns(2)
         with left:
             st.markdown(t["origin"])
-            oldbalanceorg = st.number_input(t["before"], min_value=0.0, step=0.01, value=1000.0)
-            newbalanceorg = st.number_input(t["after"], min_value=0.0, step=0.01, value=1000.0)
+            oldbalanceorg = st.number_input(t["before"], min_value=0.0, step=0.01, key="ex_org_old")
+            newbalanceorg = st.number_input(t["after"], min_value=0.0, step=0.01, key="ex_org_new")
         with right:
             st.markdown(t["destination"])
             oldbalancedest = st.number_input(
-                t["before"], min_value=0.0, step=0.01, value=1000.0, key="dest_old"
+                t["before"], min_value=0.0, step=0.01, key="ex_dst_old"
             )
             newbalancedest = st.number_input(
-                t["after"], min_value=0.0, step=0.01, value=1000.0, key="dest_new"
+                t["after"], min_value=0.0, step=0.01, key="ex_dst_new"
             )
 
         submitted = st.form_submit_button(
