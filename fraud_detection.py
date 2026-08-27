@@ -53,6 +53,14 @@ LABELS = {v: k for k, v in TYPES.items()}  # PAYMENT -> "Payment"
 # mengambil baris acak, termasuk yang gagal ditangkap.
 DEFAULT_EXAMPLE = ("Transfer", 6_546_019.00, 6_546_019.00, 0.00, 0.00, 0.00)
 
+# Diukur di test set yang sama, 1.899.033 baris. Aturan satu barisnya
+# `oldbalanceOrg == amount`, memakai informasi pra-transaksi saja.
+BASELINE_ROWS = [
+    ("rule", 1.000, 0.977, 0.988),
+    ("hgb", 0.937, 0.820, 0.875),
+    ("this", 0.770, 0.539, 0.634),
+]
+
 # ponytail: angka di bawah di-hardcode dari model.ipynb. Dataset mentahnya
 # 470 MB — app tidak boleh membacanya hanya untuk menampilkan statistik.
 TYPE_ROWS = [
@@ -182,12 +190,40 @@ TEXT = {
             "leaves PR-AUC around 0.7. Collecting more transactions is not the lever here, which "
             "is what sends the next section after a different model instead."
         ),
+        "rule_head": "Checking against a trivial rule",
+        "rule_body": (
+            "Before trusting any of these numbers, it is worth asking whether the machine "
+            "learning earns its place. PaySim injects fraud by draining an account completely, "
+            "so a single equality catches it:"
+        ),
+        "rule_code": "flag = oldbalanceOrg == amount",
+        "rule_result": (
+            "Across the same held-out month, that line fires on 4,464 transactions. All 4,464 "
+            "are fraud. It raises **not one false alarm** in 1,899,033 transactions, and none in "
+            "the training period either, while catching 97.7% of all fraud. It uses only the "
+            "balance and the amount, both known before the transaction runs."
+        ),
+        "rule_names": {"rule": "One-line rule", "hgb": "HistGradientBoosting",
+                       "this": "Logistic regression (this app)"},
+        "rule_headers": ["Approach", "Precision", "Recall", "F1"],
+        "rule_why": (
+            "The rule wins because the pattern is an equality between two features, and a linear "
+            "model sums scaled features separately with no way to express *a equals b*. Adding "
+            "the balance-error features changes nothing for the same reason: the condition is "
+            "*equals zero*, not *larger is worse*."
+        ),
+        "rule_meaning": (
+            "So what looks like signal is the simulator's own generating rule. Real fraudsters do "
+            "not always take exactly the whole balance, and this rule would not survive contact "
+            "with real transactions. The model here is worth building as an exercise; the "
+            "benchmark it scores against is not a measure of how hard fraud detection is."
+        ),
         "limits_head": "Where it falls short",
         "limits_body": f"""
             - **The model misses about 46% of fraud.** Recall sits at 0.539. Drop `THRESHOLD`
               below {THRESHOLD} to catch more fraud and flag more innocent customers.
-            - **Logistic regression draws a straight line.** Fraud here follows a rule, drain
-              the account then cash out, which gradient boosting captures better.
+            - **Logistic regression draws a straight line.** Gradient boosting reads this data
+              better, at PR-AUC 0.955 against 0.674, though the rule above beats that too.
             - **A simulator produced the data.** Precision and recall on real transactions
               would differ.
             - **The model has no account history.** The features exclude sender and recipient
@@ -341,13 +377,41 @@ TEXT = {
             "meninggalkan PR-AUC di sekitar 0,7. Mengumpulkan lebih banyak transaksi bukan "
             "tuasnya di sini, dan itu yang mengarahkan bagian berikutnya ke model lain."
         ),
+        "rule_head": "Menguji lawan aturan sepele",
+        "rule_body": (
+            "Sebelum mempercayai angka-angka di atas, layak ditanya apakah machine learning-nya "
+            "memang perlu. PaySim menyisipkan fraud dengan menguras akun sampai habis, jadi satu "
+            "kesetaraan sudah menangkapnya:"
+        ),
+        "rule_code": "flag = oldbalanceOrg == amount",
+        "rule_result": (
+            "Di bulan uji yang sama, baris itu menyala pada 4.464 transaksi. Keempat ribu empat "
+            "ratus enam puluh empat-empatnya fraud. **Nol salah tuduh** dari 1.899.033 transaksi, "
+            "nol juga di periode latih, sambil menangkap 97,7% seluruh fraud. Yang dipakai cuma "
+            "saldo dan nominal, dua-duanya sudah diketahui sebelum transaksi berjalan."
+        ),
+        "rule_names": {"rule": "Aturan satu baris", "hgb": "HistGradientBoosting",
+                       "this": "Regresi logistik (app ini)"},
+        "rule_headers": ["Pendekatan", "Precision", "Recall", "F1"],
+        "rule_why": (
+            "Aturan itu menang karena polanya adalah kesetaraan antar dua fitur, sementara model "
+            "linear menjumlahkan fitur terskala secara terpisah tanpa cara mengungkapkan *a sama "
+            "dengan b*. Menambah fitur error-saldo pun tidak mengubah apa pun, dengan alasan yang "
+            "sama: syaratnya *sama dengan nol*, bukan *makin besar makin fraud*."
+        ),
+        "rule_meaning": (
+            "Jadi yang tampak seperti sinyal sebenarnya aturan pembangkit simulatornya. Penipu "
+            "sungguhan tidak selalu mengambil tepat seluruh saldo, dan aturan ini tidak akan "
+            "bertahan di data nyata. Model di sini layak dibangun sebagai latihan; tolok ukur "
+            "yang dipakainya bukan ukuran seberapa sulit deteksi fraud sebenarnya."
+        ),
         "limits_head": "Batas kemampuannya",
         "limits_body": f"""
             - **Model melewatkan sekitar 46% fraud.** Recall-nya 0,539. Turunkan `THRESHOLD`
               di bawah {THRESHOLD} untuk menangkap lebih banyak fraud sekaligus menandai lebih
               banyak nasabah yang tidak bersalah.
-            - **Regresi logistik menarik garis lurus.** Fraud di sini mengikuti pola aturan,
-              kuras akun lalu tarik tunai, yang lebih cocok ditangani gradient boosting.
+            - **Regresi logistik menarik garis lurus.** Gradient boosting membaca data ini lebih
+              baik, PR-AUC 0,955 berbanding 0,674, walau aturan di atas tetap mengalahkannya.
             - **Datanya buatan simulator.** Precision dan recall pada transaksi nyata akan
               berbeda.
             - **Model tidak punya riwayat akun.** Fiturnya tidak memuat ID pengirim dan
@@ -637,6 +701,18 @@ with project_tab:
         (learn_line + learn_dots).properties(height=280, background=p["surface"]), theme=None
     )
     st.caption(t["learn_caption"])
+
+    st.subheader(t["rule_head"])
+    st.markdown(t["rule_body"])
+    st.code(t["rule_code"], language="python")
+    st.markdown(t["rule_result"])
+    st.dataframe(
+        pd.DataFrame([(t["rule_names"][k], f"{p:.3f}", f"{r:.3f}", f"{f:.3f}")
+                      for k, p, r, f in BASELINE_ROWS], columns=t["rule_headers"]),
+        hide_index=True, width="stretch",
+    )
+    st.markdown(t["rule_why"])
+    st.markdown(t["rule_meaning"])
 
     st.subheader(t["limits_head"])
     st.markdown(t["limits_body"])

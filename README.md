@@ -72,10 +72,30 @@ Cutting the data at hour 323, the 70th percentile of `step`, keeps each pair on 
 
 `predict()` decides at 0.5, which flags about 5% of legitimate transactions. Reading the threshold off the precision-recall curve instead puts it at 0.9926. That change raised F1 from 0.04 to 0.635 and cut false positives from 101,499 to 734.
 
+## A trivial rule beats it
+
+PaySim injects fraud by draining an account completely, so a single equality catches it:
+
+```python
+flag = oldbalanceOrg == amount
+```
+
+Across the same held-out month that line fires on 4,464 transactions, and all 4,464 are fraud. It raises no false alarm at all in 1,899,033 transactions, none in the training period either, and catches 97.7% of fraud. It reads only the balance and the amount, both known before the transaction runs.
+
+| Approach | Precision | Recall | F1 |
+|---|---|---|---|
+| One-line rule | 1.000 | 0.977 | 0.988 |
+| HistGradientBoosting | 0.937 | 0.820 | 0.875 |
+| Logistic regression (this repo) | 0.770 | 0.539 | 0.634 |
+
+The rule wins because the pattern is an equality between two features, and a linear model sums scaled features separately with no way to express *a equals b*. Adding balance-error features changes nothing for the same reason: the condition is *equals zero*, not *larger is worse*.
+
+What looks like signal here is the simulator's own generating rule. Real fraudsters do not always take exactly the whole balance, so this rule would not survive contact with real transactions. The model is worth building as an exercise, but the benchmark it scores against does not measure how hard fraud detection actually is.
+
 ## Where it falls short
 
 - **The model misses about 46% of fraud.** Lowering the threshold catches more fraud and flags more innocent customers.
-- **Logistic regression draws a straight line.** Fraud here follows a rule, drain the account then cash out. Swapping in `HistGradientBoostingClassifier` measures at PR-AUC 0.955, precision 0.937 and recall 0.820 on the same split, so the model family is the ceiling here rather than the features.
+- **Logistic regression draws a straight line.** Swapping in `HistGradientBoostingClassifier` measures at PR-AUC 0.955 against 0.674 on the same split, so the model family is the ceiling rather than the features, though the rule above beats that too.
 - **A simulator produced the data.** Precision and recall on real transactions would differ.
 - **The model has no account history.** The features exclude sender and recipient ids, so it cannot tell that an account behaved oddly last week.
 - **It keeps extrapolating past what it saw.** A transfer of 10^15 scores 1.0000. The features are scaled linearly, so values far outside the training range push the score further rather than saturating. Fed uniformly random inputs, the model calls 19% of them fraud, including transaction types that carry no fraud at all in the training data.
@@ -116,6 +136,7 @@ Point the notebook kernel at `.venv`. The pickle must come from the same environ
 | `model.ipynb` | EDA, feature selection, training, threshold tuning, model export |
 | `fraud_detection.py` | Streamlit app |
 | `fraud_detection_model.pkl` | The fitted pipeline |
+| `pr_curve.csv`, `learning_curve.csv`, `examples.csv` | Exported by the notebook for the app to read |
 
 ## Built with
 
