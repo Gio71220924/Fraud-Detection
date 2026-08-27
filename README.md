@@ -78,6 +78,7 @@ Cutting the data at hour 323, the 70th percentile of `step`, keeps each pair on 
 - **Logistic regression draws a straight line.** Fraud here follows a rule, drain the account then cash out. Swapping in `HistGradientBoostingClassifier` measures at PR-AUC 0.955, precision 0.937 and recall 0.820 on the same split, so the model family is the ceiling here rather than the features.
 - **A simulator produced the data.** Precision and recall on real transactions would differ.
 - **The model has no account history.** The features exclude sender and recipient ids, so it cannot tell that an account behaved oddly last week.
+- **It keeps extrapolating past what it saw.** A transfer of 10^15 scores 1.0000. The features are scaled linearly, so values far outside the training range push the score further rather than saturating. Fed uniformly random inputs, the model calls 19% of them fraud, including transaction types that carry no fraud at all in the training data.
 
 ## Running it
 

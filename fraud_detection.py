@@ -110,8 +110,9 @@ TEXT = {
         "legit_msg": "Predicted legitimate. Fraud probability {p:.4f}, below the {t} threshold.",
         "progress": "Fraud probability {p:.1%}",
         "no_fraud_note": (
-            "The training data holds no fraud of type {kind}, so the model labels this type "
-            "legitimate whatever the amounts."
+            "The training data holds no fraud of type {kind}, so a fraud verdict here has "
+            "nothing in the data behind it. The model still scores the balances, and unusual "
+            "ones can carry it over the threshold anyway."
         ),
         "what_head": "What this is",
         "what_body": (
@@ -181,6 +182,10 @@ TEXT = {
               would differ.
             - **The model has no account history.** The features exclude sender and recipient
               ids, so it cannot tell that an account behaved oddly last week.
+            - **It keeps extrapolating past what it saw.** Feed it a transfer of 10^15 and it
+              returns 1.0000. The features are scaled linearly, so values far outside the
+              training range push the score further instead of saturating. Fed uniformly random
+              inputs, it calls 19% of them fraud, including types that carry no fraud at all.
         """,
         "data_head": "PaySim mobile-money transactions",
         "data_body": (
@@ -252,8 +257,9 @@ TEXT = {
         "legit_msg": "Diprediksi sah. Probabilitas fraud {p:.4f}, di bawah ambang {t}.",
         "progress": "Probabilitas fraud {p:.1%}",
         "no_fraud_note": (
-            "Data latih tidak memuat satu pun fraud berjenis {kind}, jadi model menilai jenis ini "
-            "sah berapa pun nominalnya."
+            "Data latih tidak memuat satu pun fraud berjenis {kind}, jadi vonis fraud di sini "
+            "tidak berdasar apa pun di data. Model tetap menilai saldonya, dan angka yang tidak "
+            "lazim tetap bisa mendorongnya melewati ambang."
         ),
         "what_head": "Ini apa",
         "what_body": (
@@ -326,6 +332,11 @@ TEXT = {
               berbeda.
             - **Model tidak punya riwayat akun.** Fiturnya tidak memuat ID pengirim dan
               penerima, jadi model tidak tahu sebuah akun berperilaku aneh minggu lalu.
+            - **Model terus mengekstrapolasi di luar data yang dilihatnya.** Beri transfer
+              sebesar 10^15 dan hasilnya 1.0000. Fiturnya diskalakan linear, jadi nilai jauh di
+              luar rentang latih mendorong skor makin tinggi alih-alih jenuh. Diberi input acak
+              seragam, 19% di antaranya divonis fraud, termasuk jenis yang sama sekali tidak
+              memuat fraud.
         """,
         "data_head": "Transaksi uang elektronik PaySim",
         "data_body": (
