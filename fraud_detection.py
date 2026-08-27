@@ -12,6 +12,7 @@ st.set_page_config(
 MODEL_PATH = "fraud_detection_model.pkl"
 CURVE_PATH = "pr_curve.csv"
 LEARNING_PATH = "learning_curve.csv"
+EXAMPLES_PATH = "examples.csv"
 
 # Palet kategorikal tervalidasi. Slot 1 untuk kurva, slot 2 untuk titik operasi.
 # Dua-duanya lolos enam pemeriksaan (lightness band, chroma, pemisahan CVD,
@@ -44,14 +45,13 @@ TYPES = {
 
 LANGUAGES = {"English": "en", "Bahasa Indonesia": "id"}
 
-# Dua baris nyata dari dataset, keduanya TRANSFER, supaya yang membedakan
-# hasilnya adalah pola saldo dan bukan jenis transaksinya. Yang fraud menguras
-# akun sampai nol dan uangnya tidak pernah tercatat masuk di penerima.
 FIELDS = ("ex_type", "ex_amount", "ex_org_old", "ex_org_new", "ex_dst_old", "ex_dst_new")
-EXAMPLES = {
-    "fraud": ("Transfer", 6_546_019.00, 6_546_019.00, 0.00, 0.00, 0.00),
-    "legit": ("Transfer", 195_690.49, 400_210.00, 204_519.51, 125_071_526.76, 125_267_217.24),
-}
+LABELS = {v: k for k, v in TYPES.items()}  # PAYMENT -> "Payment"
+
+# Bawaan form: satu baris fraud nyata yang memang tertangkap model, supaya
+# tampilan pertama menunjukkan deteksi yang berhasil. Klik tombol setelahnya
+# mengambil baris acak, termasuk yang gagal ditangkap.
+DEFAULT_EXAMPLE = ("Transfer", 6_546_019.00, 6_546_019.00, 0.00, 0.00, 0.00)
 
 # ponytail: angka di bawah di-hardcode dari model.ipynb. Dataset mentahnya
 # 470 MB — app tidak boleh membacanya hanya untuk menampilkan statistik.
@@ -93,11 +93,21 @@ TEXT = {
         "card_note": f"Logistic regression, decision threshold {THRESHOLD}.",
         "card_warning": "Trained on PaySim, a synthetic dataset. This is not a production fraud system.",
         "ex_caption": (
-            "Two real rows from the dataset, both transfers. Load either one, then press "
-            "Predict."
+            "Each click loads a different real transaction from the held-out month, one the "
+            "model never trained on. The dataset's own label is shown with the result."
         ),
         "btn_fraud": "Load a fraud example",
         "btn_legit": "Load a legitimate example",
+        "fraud_caught": "The dataset labels this transaction fraud, and the model caught it.",
+        "fraud_missed": (
+            "The dataset labels this transaction fraud, and the model missed it. This is what a "
+            "recall of 0.539 looks like from the inside: it happens to roughly every other "
+            "fraudulent transaction."
+        ),
+        "legit_ok": "The dataset labels this transaction legitimate, and the model agrees.",
+        "legit_false_alarm": (
+            "The dataset labels this transaction legitimate, so the model raised a false alarm."
+        ),
         "type_label": "Transaction type",
         "amount_label": "Transaction amount",
         "origin": "**Origin account**",
@@ -240,11 +250,21 @@ TEXT = {
         "card_note": f"Regresi logistik, ambang keputusan {THRESHOLD}.",
         "card_warning": "Dilatih pada PaySim, dataset sintetis. Ini bukan sistem fraud produksi.",
         "ex_caption": (
-            "Dua baris nyata dari dataset, dua-duanya transfer. Muat salah satu, lalu tekan "
-            "Prediksi."
+            "Tiap klik memuat transaksi nyata yang berbeda dari bulan uji, yang tak pernah "
+            "dilatihkan ke model. Label asli dari dataset ditampilkan bersama hasilnya."
         ),
         "btn_fraud": "Muat contoh fraud",
         "btn_legit": "Muat contoh sah",
+        "fraud_caught": "Dataset melabeli transaksi ini fraud, dan model menangkapnya.",
+        "fraud_missed": (
+            "Dataset melabeli transaksi ini fraud, dan model melewatkannya. Beginilah wujud "
+            "recall 0,539 dari dekat: kira-kira terjadi pada satu dari setiap dua transaksi "
+            "fraud."
+        ),
+        "legit_ok": "Dataset melabeli transaksi ini sah, dan model sependapat.",
+        "legit_false_alarm": (
+            "Dataset melabeli transaksi ini sah, jadi model salah menuduh."
+        ),
         "type_label": "Jenis transaksi",
         "amount_label": "Nominal transaksi",
         "origin": "**Akun pengirim**",
@@ -389,6 +409,12 @@ def load_model():
 
 
 @st.cache_data
+def load_examples():
+    # Semua baris berasal dari periode uji, jadi tak satu pun pernah dilatih.
+    return pd.read_csv(EXAMPLES_PATH)
+
+
+@st.cache_data
 def load_learning():
     return pd.read_csv(LEARNING_PATH)
 
@@ -427,20 +453,26 @@ st.caption(t["subtitle"])
 predict_tab, project_tab, data_tab = st.tabs(t["tabs"])
 
 with predict_tab:
-    # Bawaan form = contoh fraud, supaya klik Predict pertama menunjukkan model
-    # benar-benar mendeteksi sesuatu. Sebelumnya form terisi 1000/1000/1000 yang
-    # selalu menghasilkan 0.0000.
-    for field, value in zip(FIELDS, EXAMPLES["fraud"]):
-        st.session_state.setdefault(field, value)
+    examples = load_examples()
 
-    def use_example(name):
-        for field, value in zip(FIELDS, EXAMPLES[name]):
+    for field, value in zip(FIELDS, DEFAULT_EXAMPLE):
+        st.session_state.setdefault(field, value)
+    st.session_state.setdefault("ex_actual", (1, DEFAULT_EXAMPLE))
+
+    def use_example(is_fraud):
+        row = examples[examples.isFraud == is_fraud].sample(1).iloc[0]
+        values = (LABELS[row.type], float(row.amount), float(row.oldbalanceOrg),
+                  float(row.newbalanceOrig), float(row.oldbalanceDest), float(row.newbalanceDest))
+        for field, value in zip(FIELDS, values):
             st.session_state[field] = value
+        # Label asli disimpan BESERTA nilainya, supaya keterangannya hilang
+        # sendiri begitu user mengubah salah satu angka.
+        st.session_state["ex_actual"] = (is_fraud, values)
 
     st.caption(t["ex_caption"])
     with st.container(horizontal=True):
-        st.button(t["btn_fraud"], icon=":material/gpp_bad:", on_click=use_example, args=("fraud",))
-        st.button(t["btn_legit"], icon=":material/verified_user:", on_click=use_example, args=("legit",))
+        st.button(t["btn_fraud"], icon=":material/gpp_bad:", on_click=use_example, args=(1,))
+        st.button(t["btn_legit"], icon=":material/verified_user:", on_click=use_example, args=(0,))
 
     with st.form("transaction"):
         transaction_type = st.selectbox(t["type_label"], list(TYPES), key="ex_type")
@@ -487,6 +519,18 @@ with predict_tab:
             st.success(
                 t["legit_msg"].format(p=fraud_proba, t=THRESHOLD), icon=":material/verified_user:"
             )
+
+        # Ditampilkan hanya kalau form masih persis seperti saat contoh dimuat.
+        loaded = st.session_state.get("ex_actual")
+        current = (transaction_type, amount, oldbalanceorg, newbalanceorg,
+                   oldbalancedest, newbalancedest)
+        if loaded and loaded[1] == current:
+            flagged = fraud_proba >= THRESHOLD
+            if loaded[0] == 1:
+                verdict = "fraud_caught" if flagged else "fraud_missed"
+            else:
+                verdict = "legit_false_alarm" if flagged else "legit_ok"
+            st.info(t[verdict], icon=":material/fact_check:")
 
         st.progress(fraud_proba, text=t["progress"].format(p=fraud_proba))
 
