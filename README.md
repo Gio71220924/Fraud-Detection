@@ -112,7 +112,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 source .venv/bin/activate       # macOS and Linux
 
-pip install streamlit pandas scikit-learn joblib matplotlib seaborn
+pip install -r requirements.txt
 ```
 
 Then launch the app:
@@ -127,7 +127,19 @@ It opens at http://localhost:8501 and offers an English or Bahasa Indonesia inte
 
 `fraud_detection_model.pkl` is committed, so the app runs without the dataset. Retraining needs it. Download the PaySim synthetic financial dataset, save it at the repository root as `AIML Dataset.csv`, and run `model.ipynb` from the top. The CSV is 470 MB and stays out of version control.
 
-Point the notebook kernel at `.venv`. The pickle must come from the same environment that serves it: a model written by scikit-learn 1.5.2 cannot be unpickled by 1.9.0.
+The notebook needs three packages the app does not:
+
+```bash
+pip install matplotlib seaborn jupyter
+```
+
+Point the notebook kernel at `.venv`. The pickle must come from the same environment that serves it: a model written by scikit-learn 1.5.2 cannot be unpickled by 1.9.0, which is why `requirements.txt` pins that version exactly. Move the pin and the model has to be re-exported with it.
+
+Running `model.ipynb` from the top rewrites `fraud_detection_model.pkl`, `pr_curve.csv`, `learning_curve.csv` and `examples.csv`, so the app and its charts stay in step with the model.
+
+### Deploying
+
+The app runs on Streamlit Community Cloud as it stands. Point a new app at this repository with `fraud_detection.py` as the entry point; the build reads `requirements.txt` on its own. Everything the app opens at runtime is committed, so the 470 MB dataset is not needed to serve it.
 
 ## Files
 
@@ -135,6 +147,7 @@ Point the notebook kernel at `.venv`. The pickle must come from the same environ
 |---|---|
 | `model.ipynb` | EDA, feature selection, training, threshold tuning, model export |
 | `fraud_detection.py` | Streamlit app |
+| `requirements.txt` | Runtime dependencies, read by pip and by Streamlit Cloud |
 | `fraud_detection_model.pkl` | The fitted pipeline |
 | `pr_curve.csv`, `learning_curve.csv`, `examples.csv` | Exported by the notebook for the app to read |
 

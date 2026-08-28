@@ -1,0 +1,14 @@
+# Runtime dependencies for the Streamlit app.
+# The notebook additionally needs matplotlib, seaborn and jupyter; those stay
+# out so the deployed app does not build them.
+
+streamlit>=1.62
+pandas>=2.2
+altair>=5.5
+joblib>=1.4
+
+# Pinned exactly: fraud_detection_model.pkl is unpickled at startup, and a
+# pickle written by one scikit-learn cannot always be read by another. A model
+# written by 1.5.2 fails outright on 1.9.0. Retrain and re-export whenever this
+# pin moves.
+scikit-learn==1.9.0
